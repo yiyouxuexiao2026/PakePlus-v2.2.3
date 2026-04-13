@@ -1,11 +1,431 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>PakePlus</title>
-    </head>
-    <body>
-        Hello World
-    </body>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>族谱编辑器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #1a1814; --bg-secondary: #242019; --fg: #f5f0e8; --fg-muted: #a09787;
+      --accent: #c9a86c; --accent-hover: #dfc08a; --card: #2a251e; --card-hover: #352f26;
+      --border: #3d362c; --line-color: #a08a5a; --spouse: #6b8e7a;
+      --male: #5a7a9a; --female: #9a6a7a; --success: #5a9a6a; --danger: #9a5a5a; --info: #5a8a9a;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { font-family: 'Noto Sans SC', sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; overflow-x: auto; overscroll-behavior: none; }
+    .font-serif { font-family: 'Noto Serif SC', serif; }
+    .bg-texture {
+      background-image: radial-gradient(ellipse at 20% 30%, rgba(201, 168, 108, 0.08) 0%, transparent 50%), radial-gradient(ellipse at 80% 70%, rgba(201, 168, 108, 0.05) 0%, transparent 50%), url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    }
+    .tree-container { display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; min-width: max-content; }
+    .tree-node { display: flex; flex-direction: column; align-items: center; position: relative; }
+    .node-content { display: flex; align-items: center; gap: 0.5rem; position: relative; z-index: 2; }
+    .person-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.875rem 1rem;
+      min-width: 120px; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative; overflow: hidden; -webkit-user-select: none; user-select: none;
+    }
+    .person-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent); transform: scaleX(0); transition: transform 0.3s ease; }
+    .person-card:active { background: var(--card-hover); transform: scale(0.98); }
+    @media (hover: hover) and (pointer: fine) { .person-card:hover { background: var(--card-hover); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); } .person-card:hover::before { transform: scaleX(1); } }
+    .person-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(201, 168, 108, 0.3); }
+    .person-card.selected::before { transform: scaleX(1); }
+    .person-card.male { border-left: 3px solid var(--male); }
+    .person-card.female { border-left: 3px solid var(--female); }
+    .quick-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.2s; background: rgba(42, 37, 30, 0.95); border-radius: 6px; padding: 2px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 10; }
+    @media (hover: hover) and (pointer: fine) { .person-card:hover .quick-actions { opacity: 1; } }
+    @media (hover: none) and (pointer: coarse) { .quick-actions { display: none; } }
+    .action-btn { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: transparent; border: none; color: var(--fg-muted); cursor: pointer; transition: all 0.2s; }
+    .action-btn:hover { background: var(--border); color: var(--fg); }
+    .action-btn.danger:hover { background: rgba(154, 90, 90, 0.3); color: #ffaaaa; }
+    .action-btn svg { width: 14px; height: 14px; }
+    .spouse-connector { width: 24px; height: 3px; background: var(--spouse); position: relative; border-radius: 2px; }
+    .spouse-connector::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; background: var(--spouse); border-radius: 50%; border: 2px solid var(--bg); }
+    
+    /* 连接线区域 - 纯留白，由JS SVG绘制 */
+    .children-wrapper { display: flex; flex-direction: column; align-items: center; padding-top: 44px; position: relative; }
+    .children-container { display: flex; gap: 2rem; position: relative; }
+    .child-wrapper { display: flex; flex-direction: column; align-items: center; }
+    .connection-svg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 1; }
+
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-in { animation: fadeInUp 0.4s ease forwards; }
+
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; visibility: hidden; transition: all 0.3s ease; }
+    .modal-overlay.active { opacity: 1; visibility: visible; }
+    .modal-content { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; max-width: 480px; width: 90%; max-height: 90vh; overflow-y: auto; transform: scale(0.95) translateY(20px); transition: transform 0.3s ease; }
+    .modal-overlay.active .modal-content { transform: scale(1) translateY(0); }
+
+    .input-field { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; color: var(--fg); width: 100%; transition: all 0.2s ease; font-size: 16px; }
+    .input-field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(201, 168, 108, 0.15); }
+    .input-field::placeholder { color: var(--fg-muted); }
+    textarea.input-field { resize: vertical; min-height: 80px; }
+
+    .btn { padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; transition: all 0.2s ease; cursor: pointer; border: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+    .btn-primary { background: var(--accent); color: var(--bg); }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-secondary { background: var(--card); color: var(--fg); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--card-hover); }
+    .btn-success { background: var(--success); color: var(--fg); }
+    .btn-success:hover { filter: brightness(1.1); }
+    .btn-danger { background: var(--danger); color: var(--fg); }
+    .btn-danger:hover { filter: brightness(1.1); }
+    .btn-sm { padding: 0.5rem 1rem; font-size: 0.875rem; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .gender-selector { display: flex; gap: 0.5rem; }
+    .gender-option { flex: 1; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--fg-muted); cursor: pointer; text-align: center; transition: all 0.2s ease; }
+    .gender-option:active { transform: scale(0.98); }
+    .gender-option.active.male { background: rgba(90, 122, 154, 0.2); border-color: var(--male); color: var(--fg); }
+    .gender-option.active.female { background: rgba(154, 106, 122, 0.2); border-color: var(--female); color: var(--fg); }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .note-indicator { position: absolute; top: -4px; right: -4px; width: 16px; height: 16px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--bg); }
+    .save-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.875rem; transition: all 0.3s ease; }
+    .save-status.saved { background: rgba(90, 154, 106, 0.2); color: #8fdb9a; }
+    .save-status.unsaved { background: rgba(201, 168, 108, 0.2); color: var(--accent); }
+    .save-status.saving { background: rgba(160, 151, 135, 0.2); color: var(--fg-muted); }
+
+    .dropdown { position: relative; }
+    .dropdown-menu { position: absolute; top: 100%; right: 0; margin-top: 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 0.5rem; min-width: 220px; opacity: 0; visibility: hidden; transform: translateY(-10px); transition: all 0.2s ease; z-index: 50; }
+    .dropdown-menu.active { opacity: 1; visibility: visible; transform: translateY(0); }
+    .dropdown-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 8px; cursor: pointer; transition: background 0.2s ease; color: var(--fg); }
+    .dropdown-item:active { background: var(--card); }
+    .dropdown-item svg { width: 18px; height: 18px; color: var(--fg-muted); flex-shrink: 0; }
+
+    .toast-container { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 0.5rem; width: 90%; max-width: 400px; }
+    .toast { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); animation: slideIn 0.3s ease; }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--danger); }
+    .toast.info { border-color: var(--info); }
+    .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+    .panel-btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 1rem; }
+    .panel-btn-group .btn { padding: 0.5rem; font-size: 0.875rem; }
+
+    @media (max-width: 768px) {
+      .hide-mobile-text { display: none; }
+      #detailPanel { top: auto; bottom: 0; width: 100%; height: auto; max-height: 75vh; border-left: none; border-top: 1px solid var(--border); border-radius: 20px 20px 0 0; box-shadow: 0 -4px 20px rgba(0,0,0,0.4); transform: translateY(100%); }
+      #detailPanel.open { transform: translateY(0); }
+      header { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+      #addRootBtn { width: 56px; height: 56px; bottom: 1rem; right: 1rem; }
+      .toast-container { bottom: 5rem; }
+    }
+    .overlay-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 35; opacity: 0; visibility: hidden; transition: all 0.3s ease; }
+    .overlay-mask.active { opacity: 1; visibility: visible; }
+  </style>
+</head>
+<body class="bg-texture">
+  <div id="overlayMask" class="overlay-mask" onclick="closeDetailPanel()"></div>
+
+  <header class="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-[var(--accent)] flex items-center justify-center flex-shrink-0">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--bg)]"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div class="hidden sm:block"><h1 class="font-serif text-lg font-semibold">族谱编辑器</h1><p class="text-xs text-[var(--fg-muted)]">数据已自动保存在本地</p></div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div id="saveStatus" class="save-status saved hidden sm:flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span>已保存</span></div>
+        <button onclick="manualSave()" class="btn btn-success btn-sm" id="saveBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg><span class="hide-mobile-text">保存</span></button>
+        <div class="dropdown">
+          <button onclick="toggleExportMenu()" class="btn btn-secondary btn-sm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+          <div id="exportMenu" class="dropdown-menu">
+            <div class="dropdown-item" onclick="exportToHtml()" style="background:rgba(201,168,108,0.1); border:1px solid rgba(201,168,108,0.3); border-radius:8px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <div><div class="font-medium" style="color:var(--accent)">导出 HTML 文件</div><div class="text-xs text-[var(--fg-muted)]">自带数据，双击打开即可查看</div></div>
+            </div>
+            <div class="dropdown-item" onclick="exportToJSON()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><div><div class="font-medium">导出 JSON 数据</div><div class="text-xs text-[var(--fg-muted)]">可再次导入编辑</div></div></div>
+            <div class="dropdown-item" onclick="exportToWord()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><div><div class="font-medium">导出 Word 文档</div><div class="text-xs text-[var(--fg-muted)]">可打印编辑</div></div></div>
+            <div class="dropdown-item" onclick="exportToImage()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><div><div class="font-medium">导出 PNG 图片</div><div class="text-xs text-[var(--fg-muted)]">适合分享展示</div></div></div>
+            <hr class="border-[var(--border)] my-1">
+            <div class="dropdown-item" onclick="document.getElementById('fileInput').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><div><div class="font-medium">导入 JSON 文件</div><div class="text-xs text-[var(--fg-muted)]">恢复备份数据</div></div></div>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".json" class="hidden" onchange="handleFileImport(event)">
+      </div>
+    </div>
+  </header>
+
+  <main class="min-h-[calc(100vh-68px)] overflow-auto" id="captureArea">
+    <div id="treeRoot" class="tree-container"></div>
+  </main>
+
+  <button onclick="openAddRootModal()" class="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-[var(--accent)] text-[var(--bg)] shadow-lg flex items-center justify-center hover:bg-[var(--accent-hover)] transition-all hover:scale-110 z-40" id="addRootBtn" style="display: none;">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <div id="editModal" class="modal-overlay" onclick="closeModalOnOverlay(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between mb-6"><h2 class="font-serif text-xl font-semibold" id="modalTitle">编辑成员</h2><button onclick="closeModal()" class="text-[var(--fg-muted)] hover:text-[var(--fg)] p-1"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+      <form id="editForm" onsubmit="savePerson(event)">
+        <input type="hidden" id="editId"><input type="hidden" id="editParentId"><input type="hidden" id="editMode">
+        <div class="mb-4"><label class="block text-sm text-[var(--fg-muted)] mb-2">姓名</label><input type="text" id="editName" class="input-field" placeholder="输入姓名" required></div>
+        <div class="mb-4"><label class="block text-sm text-[var(--fg-muted)] mb-2">性别</label><div class="gender-selector"><button type="button" class="gender-option male" onclick="selectGender('male')">男</button><button type="button" class="gender-option female" onclick="selectGender('female')">女</button></div><input type="hidden" id="editGender" value="male"></div>
+        <div class="mb-4"><label class="block text-sm text-[var(--fg-muted)] mb-2">出生年份</label><input type="text" id="editBirthYear" class="input-field" placeholder="例如: 1950"></div>
+        <div class="mb-6"><label class="block text-sm text-[var(--fg-muted)] mb-2">备注</label><textarea id="editNote" class="input-field" placeholder="添加备注信息..."></textarea></div>
+        <div class="flex gap-3"><button type="submit" class="btn btn-primary flex-1">保存</button><button type="button" onclick="closeModal()" class="btn btn-secondary">取消</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="contextMenu" class="fixed bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-xl py-2 z-50 min-w-[160px] hidden">
+    <button onclick="addSpouse()" class="w-full px-4 py-2 text-left text-sm hover:bg-[var(--card)] flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>添加配偶</button>
+    <button onclick="addChild()" class="w-full px-4 py-2 text-left text-sm hover:bg-[var(--card)] flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>添加子女</button>
+    <button onclick="addSibling()" class="w-full px-4 py-2 text-left text-sm hover:bg-[var(--card)] flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>添加兄弟姐妹</button>
+    <button onclick="editPerson()" class="w-full px-4 py-2 text-left text-sm hover:bg-[var(--card)] flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑信息</button>
+    <hr class="border-[var(--border)] my-2">
+    <button onclick="deletePerson()" class="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-[var(--card)] flex items-center gap-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>删除成员</button>
+  </div>
+
+  <div id="detailPanel" class="fixed right-0 top-[68px] bottom-0 w-80 bg-[var(--bg-secondary)] border-l border-[var(--border)] transform translate-x-full transition-transform duration-300 z-40 overflow-y-auto">
+    <div class="sm:hidden flex justify-center py-3 cursor-pointer" onclick="closeDetailPanel()"><div class="w-10 h-1 bg-[var(--border)] rounded-full"></div></div>
+    <div class="p-6 pt-0 sm:pt-6"><div class="flex items-center justify-between mb-6"><h3 class="font-serif text-lg font-semibold">成员详情</h3><button onclick="closeDetailPanel()" class="text-[var(--fg-muted)] hover:text-[var(--fg)] p-1 hidden sm:block"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div id="detailContent"></div></div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script>
+    let familyData = { nodes: {}, rootIds: [] };
+    let selectedNodeId = null, contextMenuTarget = null, hasUnsavedChanges = false, autoSaveTimer = null;
+    let isMobile = window.innerWidth <= 768;
+    window.addEventListener('resize', () => { isMobile = window.innerWidth <= 768; debounceDrawLines(); });
+
+    function createNode(name, gender, birthYear, note) {
+      const id = 'node_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      const node = { id, name, gender: gender || 'male', birthYear: birthYear || '', note: note || '', spouseId: null, childrenIds: [] };
+      familyData.nodes[id] = node; return node;
+    }
+
+    function createSampleData() {
+      const g = createNode('火德公', 'male', '', '入南方始祖');
+      [createNode('叁一郎', 'male', '', '长子'), createNode('叁二郎', 'male', '', '次子'), createNode('叁三郎', 'male', '', '三子')].forEach(c => g.childrenIds.push(c.id));
+      familyData.rootIds = [g.id]; markUnsaved();
+    }
+
+    function loadData() {
+      if (typeof window.INITIAL_FAMILY_DATA !== 'undefined' && window.INITIAL_FAMILY_DATA && window.INITIAL_FAMILY_DATA.nodes) {
+        familyData = window.INITIAL_FAMILY_DATA;
+        renderTree(); markSaved();
+        setTimeout(() => showToast('已从文件加载数据', 'success'), 500);
+        return;
+      }
+      const saved = localStorage.getItem('familyTreeData');
+      if (saved) { try { const p = JSON.parse(saved); if (p && p.nodes && p.rootIds) familyData = p; } catch (e) {} }
+      if (familyData.rootIds.length === 0) createSampleData();
+      renderTree(); markSaved();
+      if (Object.keys(familyData.nodes).length < 5) setTimeout(() => showToast('建议导出独立HTML文件备份', 'info'), 1500);
+    }
+
+    function saveToStorage() { try { localStorage.setItem('familyTreeData', JSON.stringify(familyData)); return true; } catch (e) { return false; } }
+    function markUnsaved() { hasUnsavedChanges = true; updateSaveStatus('unsaved'); if (autoSaveTimer) clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(autoSave, 2000); }
+    function markSaved() { hasUnsavedChanges = false; updateSaveStatus('saved'); }
+    function autoSave() { if (hasUnsavedChanges) { updateSaveStatus('saving'); setTimeout(() => { if (saveToStorage()) markSaved(); }, 300); } }
+    function manualSave() { updateSaveStatus('saving'); const btn = document.getElementById('saveBtn'); btn.disabled = true; setTimeout(() => { if (saveToStorage()) { markSaved(); showToast('保存成功', 'success'); } else { showToast('保存失败', 'error'); } btn.disabled = false; }, 500); }
+    function updateSaveStatus(s) { const el = document.getElementById('saveStatus'); el.className = 'save-status ' + s; const i = { saved: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>', unsaved: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>', saving: '<div class="spinner"></div>' }; const t = { saved: '已保存', unsaved: '未保存', saving: '保存中...' }; el.innerHTML = i[s] + '<span>' + t[s] + '</span>'; }
+
+    function showToast(msg, type = 'success') { const c = document.getElementById('toastContainer'); const d = document.createElement('div'); d.className = 'toast ' + type; const icons = { success: '#5a9a6a', error: '#9a5a5a', info: '#5a8a9a' }; d.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${icons[type]}" stroke-width="2">${type === 'info' ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>' : type === 'error' ? '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>' : '<path d="M20 6L9 17l-5-5"/>'}</svg><span>${msg}</span>`; c.appendChild(d); setTimeout(() => { d.style.opacity = '0'; d.style.transform = 'translateY(10px)'; setTimeout(() => d.remove(), 300); }, 4000); }
+
+    // ==================== Export ====================
+    function toggleExportMenu() { document.getElementById('exportMenu').classList.toggle('active'); }
+    document.addEventListener('click', (e) => { if (!document.querySelector('.dropdown').contains(e.target)) document.getElementById('exportMenu').classList.remove('active'); });
+
+    function exportToHtml() {
+      const jsonStr = JSON.stringify(familyData);
+      const script = `<script>window.INITIAL_FAMILY_DATA = ${jsonStr};<\/script>`;
+      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML.replace('</head>', script + '\n</head>');
+      const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+      downloadBlob(blob, `族谱_${getDateString()}.html`);
+      showToast('HTML文件已导出，双击即可查看', 'success');
+      document.getElementById('exportMenu').classList.remove('active');
+    }
+
+    function exportToJSON() { const b = new Blob([JSON.stringify(familyData, null, 2)], { type: 'application/json' }); downloadBlob(b, `family_tree_${getDateString()}.json`); showToast('JSON备份已下载', 'success'); document.getElementById('exportMenu').classList.remove('active'); }
+    function exportToWord() { const b = new Blob(['\ufeff' + generateWordHTML()], { type: 'application/msword' }); downloadBlob(b, `family_tree_${getDateString()}.doc`); showToast('Word文档已导出', 'success'); document.getElementById('exportMenu').classList.remove('active'); }
+    async function exportToImage() { showToast('正在生成图片...', 'info'); try { const a = document.getElementById('captureArea'); const w = document.createElement('div'); w.style.cssText = 'background:#1a1814;padding:40px;display:inline-block;'; const c = a.cloneNode(true); c.style.padding = '40px'; c.style.minWidth = a.scrollWidth + 80 + 'px'; w.appendChild(c); document.body.appendChild(w); const cv = await html2canvas(w, { backgroundColor: '#1a1814', scale: 2, useCORS: true, logging: false }); document.body.removeChild(w); cv.toBlob(b => { downloadBlob(b, `family_tree_${getDateString()}.png`); showToast('PNG已导出', 'success'); }); } catch (e) { showToast('导出失败', 'error'); } document.getElementById('exportMenu').classList.remove('active'); }
+    function generateWordHTML() { let m = Object.values(familyData.nodes); m.sort((a, b) => (parseInt(a.birthYear) || 9999) - (parseInt(b.birthYear) || 9999)); return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:SimSun,serif}h1{text-align:center}table{width:100%;border-collapse:collapse;margin-top:10pt}th,td{border:1px solid #666;padding:8pt}th{background:#f0f0f0}</style></head><body><h1>族谱</h1><table><tr><th>姓名</th><th>性别</th><th>出生</th><th>配偶</th><th>备注</th></tr>${m.map(n => `<tr><td>${esc(n.name)}</td><td>${n.gender === 'male' ? '男' : '女'}</td><td>${esc(n.birthYear) || '-'}</td><td>${n.spouseId && familyData.nodes[n.spouseId] ? esc(familyData.nodes[n.spouseId].name) : '-'}</td><td>${esc(n.note) || '-'}</td></tr>`).join('')}</table></body></html>`; }
+    function downloadBlob(b, f) { const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = f; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); }
+    function getDateString() { return new Date().toISOString().split('T')[0].replace(/-/g, ''); }
+    function handleFileImport(e) { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { try { const d = JSON.parse(ev.target.result); if (d.nodes && d.rootIds) { familyData = d; saveToStorage(); renderTree(); showToast('导入成功', 'success'); } else showToast('格式无效', 'error'); } catch (err) { showToast('解析失败', 'error'); } }; r.readAsText(f); e.target.value = ''; }
+
+    // ==================== SVG Connections ====================
+    let drawLineTimer = null;
+    function debounceDrawLines() { if (drawLineTimer) clearTimeout(drawLineTimer); drawLineTimer = setTimeout(drawConnections, 150); }
+
+    function drawConnections() {
+      document.querySelectorAll('.connection-svg').forEach(el => el.remove());
+      document.querySelectorAll('.tree-node').forEach(treeNode => {
+        const wrapper = treeNode.querySelector(':scope > .children-wrapper');
+        if (!wrapper) return;
+        const container = wrapper.querySelector(':scope > .children-container');
+        if (!container) return;
+        const children = Array.from(container.querySelectorAll(':scope > .child-wrapper'));
+        if (children.length === 0) return;
+
+        const treeRect = treeNode.getBoundingClientRect();
+        const parentEl = treeNode.querySelector(':scope > .node-content');
+        if (!parentEl) return;
+        const pRect = parentEl.getBoundingClientRect();
+        const px = pRect.left + pRect.width / 2 - treeRect.left;
+        const py = pRect.bottom - treeRect.top;
+
+        const points = children.map(c => {
+          const nc = c.querySelector(':scope > .tree-node > .node-content');
+          if (!nc) return null;
+          const r = nc.getBoundingClientRect();
+          return { x: r.left + r.width / 2 - treeRect.left, y: r.top - treeRect.top };
+        }).filter(Boolean);
+
+        if (points.length === 0) return;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.classList.add('connection-svg');
+        svg.style.cssText = `position:absolute;top:0;left:0;width:${treeRect.width}px;height:${treeRect.height}px;pointer-events:none;overflow:visible;z-index:1;`;
+        const col = '#a08a5a';
+        const sw = 2.5;
+        const midY = py + 28;
+
+        if (points.length === 1) {
+          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('d', `M ${px} ${py} L ${points[0].x} ${points[0].y}`);
+          p.setAttribute('stroke', col); p.setAttribute('stroke-width', sw); p.setAttribute('fill', 'none'); p.setAttribute('stroke-linecap', 'round');
+          svg.appendChild(p);
+        } else {
+          // 横线
+          const xs = points.map(p => p.x);
+          const hl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          hl.setAttribute('x1', Math.min(...xs)); hl.setAttribute('y1', midY); hl.setAttribute('x2', Math.max(...xs)); hl.setAttribute('y2', midY);
+          hl.setAttribute('stroke', col); hl.setAttribute('stroke-width', sw); hl.setAttribute('stroke-linecap', 'round');
+          svg.appendChild(hl);
+          // 父到横线
+          const pv = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          pv.setAttribute('x1', px); pv.setAttribute('y1', py); pv.setAttribute('x2', px); pv.setAttribute('y2', midY);
+          pv.setAttribute('stroke', col); pv.setAttribute('stroke-width', sw); pv.setAttribute('stroke-linecap', 'round');
+          svg.appendChild(pv);
+          // 横线到子节点
+          points.forEach(pt => {
+            const cv = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            cv.setAttribute('x1', pt.x); cv.setAttribute('y1', midY); cv.setAttribute('x2', pt.x); cv.setAttribute('y2', pt.y);
+            cv.setAttribute('stroke', col); cv.setAttribute('stroke-width', sw); cv.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(cv);
+          });
+        }
+        treeNode.insertBefore(svg, treeNode.firstChild);
+      });
+    }
+
+    // ==================== Render ====================
+    function renderTree() {
+      const c = document.getElementById('treeRoot'); c.innerHTML = '';
+      if (familyData.rootIds.length === 0) {
+        c.innerHTML = `<div class="text-center py-20 animate-in"><div class="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--card)] flex items-center justify-center"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--fg-muted)" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><h3 class="font-serif text-xl mb-2">开始创建族谱</h3><p class="text-[var(--fg-muted)] mb-6">点击右下角按钮添加成员</p><button onclick="openAddRootModal()" class="btn btn-primary">添加成员</button></div>`;
+        document.getElementById('addRootBtn').style.display = 'none'; return;
+      }
+      document.getElementById('addRootBtn').style.display = 'flex';
+      familyData.rootIds.forEach((id, i) => { const n = familyData.nodes[id]; if (n) c.appendChild(renderNode(n, 0, i)); });
+      requestAnimationFrame(() => requestAnimationFrame(drawConnections));
+    }
+
+    function renderNode(node, depth, idx) {
+      const w = document.createElement('div'); w.className = 'tree-node animate-in'; w.style.animationDelay = `${depth * 0.1 + idx * 0.05}s`;
+      const c = document.createElement('div'); c.className = 'node-content'; c.appendChild(createCard(node));
+      if (node.spouseId && familyData.nodes[node.spouseId]) { const s = familyData.nodes[node.spouseId]; const cn = document.createElement('div'); cn.className = 'spouse-connector'; c.appendChild(cn); c.appendChild(createCard(s, true)); }
+      w.appendChild(c);
+      if (node.childrenIds && node.childrenIds.length > 0) {
+        const cw = document.createElement('div'); cw.className = 'children-wrapper';
+        const cc = document.createElement('div'); cc.className = 'children-container';
+        node.childrenIds.forEach((cid, ci) => { const cn = familyData.nodes[cid]; if (cn) { const wr = document.createElement('div'); wr.className = 'child-wrapper'; wr.appendChild(renderNode(cn, depth + 1, ci)); cc.appendChild(wr); } });
+        cw.appendChild(cc); w.appendChild(cw);
+      }
+      return w;
+    }
+
+    function createCard(node, isSpouse = false) {
+      const card = document.createElement('div');
+      card.className = `person-card ${node.gender} ${selectedNodeId === node.id ? 'selected' : ''}`; card.dataset.id = node.id;
+      if (node.note && node.note.trim()) { const ni = document.createElement('div'); ni.className = 'note-indicator'; ni.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12h14"/></svg>`; card.appendChild(ni); }
+      const ad = document.createElement('div'); ad.className = 'quick-actions';
+      [{ t: '编辑', ic: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>', fn: () => openModalById(node.id) },
+       { t: '配偶', ic: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', fn: () => addSpouseById(node.id) },
+       { t: '子女', ic: '<path d="M12 5v14M5 12h14"/>', fn: () => addChildById(node.id) },
+       { t: '删除', ic: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', fn: () => deletePersonById(node.id), dg: true }
+      ].forEach(a => { const b = document.createElement('button'); b.className = `action-btn ${a.dg ? 'danger' : ''}`; b.title = a.t; b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${a.ic}</svg>`; b.addEventListener('click', (e) => { e.stopPropagation(); a.fn(); }); ad.appendChild(b); });
+      card.appendChild(ad);
+      const d = document.createElement('div'); d.innerHTML = `<div class="font-medium text-[var(--fg)] mb-1">${esc(node.name)}</div>${node.birthYear ? `<div class="text-xs text-[var(--fg-muted)]">${esc(node.birthYear)}年</div>` : ''}${isSpouse ? '<div class="text-xs text-[var(--spouse)] mt-1">配偶</div>' : ''}`;
+      card.appendChild(d);
+      card.addEventListener('click', (e) => { if (!e.target.closest('.action-btn')) { selectNode(node.id); showDetailPanel(node); } });
+      card.addEventListener('contextmenu', (e) => { if (isMobile) return; e.preventDefault(); e.stopPropagation(); showCtx(e, node.id); });
+      return card;
+    }
+
+    function selectNode(id) { selectedNodeId = id; document.querySelectorAll('.person-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id)); }
+    function showCtx(e, id) { const m = document.getElementById('contextMenu'); contextMenuTarget = id; m.style.left = e.pageX + 'px'; m.style.top = e.pageY + 'px'; m.classList.remove('hidden'); requestAnimationFrame(() => { const r = m.getBoundingClientRect(); if (r.right > window.innerWidth) m.style.left = Math.max(10, e.pageX - r.width) + 'px'; if (r.bottom > window.innerHeight) m.style.top = Math.max(10, e.pageY - r.height) + 'px'; }); }
+    function hideCtx() { document.getElementById('contextMenu').classList.add('hidden'); contextMenuTarget = null; }
+    document.addEventListener('click', hideCtx);
+
+    function showDetailPanel(node) {
+      const p = document.getElementById('detailPanel'), m = document.getElementById('overlayMask'), c = document.getElementById('detailContent');
+      const si = node.spouseId && familyData.nodes[node.spouseId] ? familyData.nodes[node.spouseId].name : '未记录';
+      const cn = node.childrenIds ? node.childrenIds.map(id => familyData.nodes[id]?.name).filter(Boolean) : [];
+      c.innerHTML = `<div class="mb-6"><div class="w-16 h-16 rounded-full bg-[var(--card)] border-2 border-[var(--${node.gender === 'male' ? 'male' : 'female'})] flex items-center justify-center mb-4"><span class="font-serif text-2xl text-[var(--accent)]">${node.name.charAt(0)}</span></div><h4 class="font-serif text-xl font-semibold">${esc(node.name)}</h4><p class="text-sm text-[var(--fg-muted)]">${node.gender === 'male' ? '男' : '女'}${node.birthYear ? ' · ' + node.birthYear + '年' : ''}</p></div><div class="space-y-4"><div class="p-4 bg-[var(--card)] rounded-lg"><div class="text-xs text-[var(--fg-muted)] mb-1">配偶</div><div>${esc(si)}</div></div>${cn.length > 0 ? `<div class="p-4 bg-[var(--card)] rounded-lg"><div class="text-xs text-[var(--fg-muted)] mb-2">子女 (${cn.length})</div><div class="flex flex-wrap gap-2">${cn.map(n => `<span class="px-2 py-1 bg-[var(--bg)] rounded text-sm">${esc(n)}</span>`).join('')}</div></div>` : ''}${node.note ? `<div class="p-4 bg-[var(--card)] rounded-lg"><div class="text-xs text-[var(--fg-muted)] mb-2">备注</div><div class="text-sm leading-relaxed">${esc(node.note)}</div></div>` : ''}</div><div class="panel-btn-group" id="dpAct"></div>`;
+      const ac = document.getElementById('dpAct');
+      const mk = (t, cl, fn) => { const b = document.createElement('button'); b.className = `btn ${cl}`; b.textContent = t; b.onclick = fn; return b; };
+      ac.appendChild(mk('编辑', 'btn-secondary', () => editPersonById(node.id)));
+      ac.appendChild(mk('删除', 'btn-danger', () => deletePersonById(node.id)));
+      ac.appendChild(mk('添加配偶', 'btn-secondary col-span-2', () => addSpouseById(node.id)));
+      ac.appendChild(mk('添加子女', 'btn-secondary col-span-2', () => addChildById(node.id)));
+      ac.appendChild(mk('添加兄弟姐妹', 'btn-secondary col-span-2', () => addSiblingById(node.id)));
+      p.classList.remove('translate-x-full'); p.classList.add('open'); m.classList.add('active');
+    }
+    function closeDetailPanel() { document.getElementById('detailPanel').classList.add('translate-x-full'); document.getElementById('detailPanel').classList.remove('open'); document.getElementById('overlayMask').classList.remove('active'); selectedNodeId = null; document.querySelectorAll('.person-card').forEach(c => c.classList.remove('selected')); }
+
+    // ==================== Actions ====================
+    function findParentId(id) { for (const i in familyData.nodes) { if (familyData.nodes[i].childrenIds && familyData.nodes[i].childrenIds.includes(id)) return i; } return null; }
+    function openModal(title, mode, node, pid) {
+      document.getElementById('modalTitle').textContent = title; document.getElementById('editMode').value = mode; document.getElementById('editParentId').value = pid || '';
+      if (node) { document.getElementById('editId').value = node.id; document.getElementById('editName').value = node.name; document.getElementById('editGender').value = node.gender; document.getElementById('editBirthYear').value = node.birthYear || ''; document.getElementById('editNote').value = node.note || ''; selectGender(node.gender); }
+      else { document.getElementById('editId').value = ''; document.getElementById('editName').value = ''; document.getElementById('editGender').value = 'male'; document.getElementById('editBirthYear').value = ''; document.getElementById('editNote').value = ''; selectGender('male'); }
+      document.getElementById('editModal').classList.add('active'); setTimeout(() => document.getElementById('editName').focus(), 100);
+    }
+    function openModalById(id) { const n = familyData.nodes[id]; if (n) openModal('编辑成员', 'edit', n); }
+    function closeModal() { document.getElementById('editModal').classList.remove('active'); }
+    function closeModalOnOverlay(e) { if (e.target === e.currentTarget) closeModal(); }
+    function selectGender(g) { document.getElementById('editGender').value = g; document.querySelectorAll('.gender-option').forEach(b => b.classList.toggle('active', b.classList.contains(g))); }
+
+    function savePerson(e) {
+      e.preventDefault(); const m = document.getElementById('editMode').value, id = document.getElementById('editId').value, name = document.getElementById('editName').value.trim(), g = document.getElementById('editGender').value, by = document.getElementById('editBirthYear').value.trim(), n = document.getElementById('editNote').value.trim(), pid = document.getElementById('editParentId').value;
+      if (!name) return;
+      if (m === 'edit' && id) { const nd = familyData.nodes[id]; if (nd) { nd.name = name; nd.gender = g; nd.birthYear = by; nd.note = n; } }
+      else if (m === 'add') { const nn = createNode(name, g, by, n); if (pid) { const p = familyData.nodes[pid]; if (p) { if (!p.childrenIds) p.childrenIds = []; p.childrenIds.push(nn.id); } } else familyData.rootIds.push(nn.id); }
+      else if (m === 'spouse') { const en = familyData.nodes[id]; if (en) { if (en.spouseId) { showToast('已有配偶', 'error'); return; } const ns = createNode(name, g, by, n); en.spouseId = ns.id; ns.spouseId = en.id; } }
+      markUnsaved(); renderTree(); closeModal(); if (selectedNodeId && familyData.nodes[selectedNodeId]) showDetailPanel(familyData.nodes[selectedNodeId]);
+    }
+
+    function addSpouse() { if (!contextMenuTarget) return; addSpouseById(contextMenuTarget); hideCtx(); }
+    function addSpouseById(id) { const n = familyData.nodes[id]; if (!n) return; if (n.spouseId) { showToast('已有配偶', 'error'); return; } openModal(`为 ${n.name} 添加配偶`, 'spouse', null, null); document.getElementById('editId').value = id; selectGender(n.gender === 'male' ? 'female' : 'male'); }
+    function addChild() { if (!contextMenuTarget) return; addChildById(contextMenuTarget); hideCtx(); }
+    function addChildById(id) { openModal('添加子女', 'add', null, id); }
+    function addSibling() { if (!contextMenuTarget) return; addSiblingById(contextMenuTarget); hideCtx(); }
+    function addSiblingById(id) { const p = findParentId(id); openModal('添加兄弟姐妹', 'add', null, p || null); }
+    function editPerson() { if (!contextMenuTarget) return; editPersonById(contextMenuTarget); hideCtx(); }
+    function editPersonById(id) { const n = familyData.nodes[id]; if (n) openModal('编辑成员', 'edit', n); }
+    function deletePerson() { if (!contextMenuTarget) return; deletePersonById(contextMenuTarget); hideCtx(); }
+    function deletePersonById(id) { if (!familyData.nodes[id]) return; const n = familyData.nodes[id]; let w = `确定删除 "${n.name}" 吗？`; if (n.spouseId) w += '\n配偶关联将移除。'; if (n.childrenIds?.length) w += '\n将同时删除所有后代！'; if (!confirm(w)) return; function del(nid) { const nd = familyData.nodes[nid]; if (!nd) return; if (nd.spouseId && familyData.nodes[nd.spouseId]) familyData.nodes[nd.spouseId].spouseId = null; if (nd.childrenIds) [...nd.childrenIds].forEach(del); Object.values(familyData.nodes).forEach(p => { if (p.childrenIds) p.childrenIds = p.childrenIds.filter(c => c !== nid); }); familyData.rootIds = familyData.rootIds.filter(r => r !== nid); delete familyData.nodes[nid]; } del(id); markUnsaved(); renderTree(); closeDetailPanel(); showToast('已删除', 'success'); }
+    function openAddRootModal() { openModal('添加成员', 'add', null, null); }
+
+    function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); closeDetailPanel(); hideCtx(); document.getElementById('exportMenu').classList.remove('active'); } if (e.ctrlKey && e.key === 's') { e.preventDefault(); manualSave(); } });
+    window.addEventListener('beforeunload', (e) => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; } });
+    loadData();
+  </script>
+</body>
 </html>
